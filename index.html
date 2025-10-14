@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Die Simpsons Checkliste 📺</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #121212;
+      color: #f4f4f4;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      background: #fdd835;
+      color: #222;
+      padding: 1rem;
+      text-align: center;
+      font-weight: bold;
+      font-size: 1.6em;
+    }
+    .container {
+      max-width: 900px;
+      margin: 2rem auto;
+      background: #1e1e1e;
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 0 10px rgba(255,255,0,0.2);
+    }
+    .season {
+      margin-bottom: 2rem;
+    }
+    .season h2 {
+      color: #fdd835;
+      border-bottom: 1px solid #555;
+      padding-bottom: 0.3rem;
+    }
+    .episode {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.6rem 0;
+      border-bottom: 1px solid #333;
+    }
+    .episode button {
+      background: #fdd835;
+      border: none;
+      color: #222;
+      padding: 0.4rem 0.8rem;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .episode button:hover {
+      background: #ffe75a;
+    }
+    video {
+      width: 100%;
+      margin-top: 1rem;
+      border-radius: 10px;
+      background: #000;
+    }
+  </style>
+</head>
+<body>
+  <header>📺 Die Simpsons – Episoden Checkliste</header>
+  <div class="container">
+    <div id="episodes"></div>
+    <video id="player" controls></video>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getDatabase, ref, set, get, child, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+    // 🔥 Firebase Config
+    const firebaseConfig = {
+      apiKey: "AIzaSyBVgv79F5x0UWjgwX8tLKW9RYwWJSRfaeA",
+      authDomain: "simpsons-checkliste.firebaseapp.com",
+      databaseURL: "https://simpsons-checkliste-default-rtdb.firebaseio.com",
+      projectId: "simpsons-checkliste",
+      storageBucket: "simpsons-checkliste.firebasestorage.app",
+      messagingSenderId: "579555190501",
+      appId: "1:579555190501:web:24687ab2c8e28520f3960c"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const dbRef = ref(db);
+
+    const m3u8Url = "https://raw.githubusercontent.com/Elias3422/Hhh/main/simi_simpsons_only.m3u8";
+    const proxyBase = "https://simpsons-proxy.onrender.com"; // 🔁 Deinen Render-Link hier einsetzen
+
+    const player = document.getElementById("player");
+    const episodesDiv = document.getElementById("episodes");
+
+    async function loadEpisodes() {
+      const res = await fetch(m3u8Url);
+      const text = await res.text();
+      const lines = text.split("\n").filter(l => l.trim() !== "");
+
+      const data = await get(child(dbRef, "simpsons"));
+      const watched = data.exists() ? data.val() : {};
+
+      let currentSeason = "";
+      let seasonDiv = null;
+
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith("#EXTINF")) {
+          const info = lines[i];
+          const url = lines[i + 1];
+          const match = info.match(/Die Simpsons.*S(\d+)E(\d+)\s-\s(.+)/);
+          if (!match) continue;
+
+          const [_, season, episode, title] = match;
+          if (currentSeason !== season) {
+            currentSeason = season;
+            seasonDiv = document.createElement("div");
+            seasonDiv.classList.add("season");
+            seasonDiv.innerHTML = `<h2>Staffel ${season}</h2>`;
+            episodesDiv.appendChild(seasonDiv);
+          }
+
+          const epId = `S${season}E${episode}`;
+          const checked = watched[epId] || false;
+
+          const epDiv = document.createElement("div");
+          epDiv.classList.add("episode");
+          epDiv.innerHTML = `
+            <label>
+              <input type="checkbox" ${checked ? "checked" : ""} data-ep="${epId}"> ${title}
+            </label>
+            <button data-url="${encodeURIComponent(url)}">▶️ Abspielen</button>
+          `;
+          seasonDiv.appendChild(epDiv);
+        }
+      }
+
+      // Checkbox Event
+      document.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.addEventListener("change", async () => {
+          const id = cb.getAttribute("data-ep");
+          await update(ref(db, "simpsons/" + id), cb.checked);
+        });
+      });
+
+      // Play Button Event
+      document.querySelectorAll("button[data-url]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const encodedUrl = btn.getAttribute("data-url");
+          const streamUrl = `${proxyBase}/stream?url=${encodedUrl}`;
+          player.src = streamUrl;
+          player.play();
+        });
+      });
+    }
+
+    loadEpisodes();
+  </script>
+</body>
+</html>
