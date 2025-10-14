@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Die Simpsons — Checkliste & Player</title>
+
+<!-- Firebase (compat) -->
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+
+<!-- HLS.js -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+<style>
+  :root{
+    --bg-1:#0a0c0f;
+    --bg-2:#0f1317;
+    --card:#0f1520;
+    --muted:#9aa4b2;
+    --accent:#2dd4bf;
+    --accent-2:#60e0c9;
+    --glass: rgba(255,255,255,0.03);
+    --danger:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    background: linear-gradient(180deg,var(--bg-1),var(--bg-2));
+    color:#e6eef6;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+    padding:20px;
+  }
+  .wrap{max-width:1100px;margin:0 auto}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+  h1{margin:0;font-size:1.35rem}
+  .subtitle{color:var(--muted);font-size:0.95rem}
+  .top-right{margin-left:auto;color:var(--muted);font-size:0.9rem}
+  .panel{background:var(--card);padding:12px;border-radius:12px;margin-bottom:14px;border:1px solid rgba(255,255,255,0.03)}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .search{flex:1;min-width:180px;padding:8px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+  .btn{background:linear-gradient(90deg,var(--accent),var(--accent-2));border:none;color:#042027;padding:8px 12px;border-radius:10px;font-weight:700;cursor:pointer}
+  .btn.ghost{background:transparent;color:var(--accent);border:1px solid rgba(255,255,255,0.04)}
+  .seasons{display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px}
+  @media(min-width:980px){.seasons{grid-template-columns:1fr 1fr}}
+  .season{background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.015));padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.02)}
+  .season-head{display:flex;justify-content:space-between;align-items:center}
+  .episode-list{max-height:420px;overflow:auto;margin-top:10px;padding-right:6px}
+  .episode{display:flex;align-items:center;gap:12px;padding:8px;border-radius:10px}
+  .episode:hover{background:rgba(255,255,255,0.01)}
+  .ep-left{width:60px;text-align:right;color:var(--muted);font-weight:800}
+  .ep-title{flex:1}
+  .small{font-size:0.85rem;color:var(--muted)}
+  .progress{height:10px;background:rgba(255,255,255,0.03);border-radius:999px;overflow:hidden;width:180px}
+  .progress > i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-2));width:0%}
+  .badge{background:rgba(255,255,255,0.02);padding:6px 8px;border-radius:999px}
+  .footer{color:var(--muted);margin-top:12px}
+  .meta{color:var(--muted);font-size:0.85rem}
+  .hidden-url{display:none}
+
+  /* modal */
+  .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(2,6,23,0.6);z-index:1000;padding:20px}
+  .modal.open{display:flex}
+  .modal-panel{background:linear-gradient(180deg,#071323,#041018);border-radius:12px;padding:12px;max-width:980px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.03)}
+  .modal-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .modal-title{font-weight:700}
+  .modal-close{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted);padding:6px 10px;border-radius:8px;cursor:pointer}
+  video{width:100%;height:480px;background:black;border-radius:8px;display:block}
+  .note{font-size:0.85rem;color:var(--muted);margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Die Simpsons — Checkliste</h1>
+      <div class="subtitle">Automatisch aus deiner Playlist · global synchronisiert via Firebase</div>
+    </div>
+    <div class="top-right">
+      <span class="small">Status: <span id="statusBadge">Lade…</span></span>
+    </div>
+  </header>
+
+  <div class="panel">
+    <div class="controls">
+      <input id="search" class="search" placeholder="Suche (z. B. 'Bart', 'S01E04')" />
+      <button id="expandAll" class="btn ghost">Alle auf</button>
+      <button id="collapseAll" class="btn ghost">Alle zu</button>
+      <button id="markAllSeen" class="btn">Alles gesehen</button>
+      <button id="markAllUnseen" class="btn ghost">Alles ungesehen</button>
+      <button id="exportBtn" class="btn ghost">Export</button>
+      <button id="importBtn" class="btn ghost">Import</button>
+    </div>
+
+    <div style="display:flex;gap:12px;align-items:center;margin-top:12px;">
+      <div class="small">Gesehen: <strong id="seenCount">0</strong> / <strong id="allCount">0</strong></div>
+      <div style="margin-left:auto; display:flex;align-items:center;gap:8px;">
+        <div class="progress" title="Fortschritt"><i id="progressFill"></i></div>
+        <div class="small" id="progressPct">0%</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="seasonsContainer" class="seasons"></div>
+
+  <div class="footer">
+    <div class="meta">Quelle: Playlist (hidden). Fortschritt wird in Firebase Realtime Database gespeichert (global).</div>
+  </div>
+</div>
+
+<!-- Player Modal -->
+<div id="playerModal" class="modal" aria-hidden="true">
+  <div class="modal-panel" role="dialog" aria-modal="true">
+    <div class="modal-top">
+      <div class="modal-title" id="playerTitle">Titel</div>
+      <div><button id="closeModal" class="modal-close">Schließen</button></div>
+    </div>
+    <video id="playerVideo" controls playsinline></video>
+    <div class="note">Tippe außerhalb des Players oder auf „Schließen“, um das Fenster zu schließen.</div>
+  </div>
+</div>
+
+<script>
+/* CONFIG */
+const PLAYLIST_URL = "https://raw.githubusercontent.com/Elias3422/Hhh/main/simi_simpsons_only.m3u8";
+const PROXY_BASE   = "https://simpsons-proxy2.zeabur.app"; // Zeabur proxy (MKV->MP4)
+
+/* Firebase config (your project) */
+const firebaseConfig = {
+  apiKey: "AIzaSyBVgv79F5x0UWjgwX8tLKW9RYwWJSRfaeA",
+  authDomain: "simpsons-checkliste.firebaseapp.com",
+  databaseURL: "https://simpsons-checkliste-default-rtdb.firebaseio.com",
+  projectId: "simpsons-checkliste",
+  storageBucket: "simpsons-checkliste.firebasestorage.app",
+  messagingSenderId: "579555190501",
+  appId: "1:579555190501:web:24687ab2c8e28520f3960c"
+};
+
+/* Initialize Firebase (compat) */
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+/* UI refs */
+const statusBadge   = document.getElementById('statusBadge');
+const seasonsContainer = document.getElementById('seasonsContainer');
+const searchInput   = document.getElementById('search');
+const seenCountEl   = document.getElementById('seenCount');
+const allCountEl    = document.getElementById('allCount');
+const progressFill  = document.getElementById('progressFill');
+const progressPct   = document.getElementById('progressPct');
+const playerModal   = document.getElementById('playerModal');
+const playerVideo   = document.getElementById('playerVideo');
+const playerTitle   = document.getElementById('playerTitle');
+const closeModalBtn = document.getElementById('closeModal');
+
+let entries = []; // {title,url,raw}
+let episodeIndex = []; // {key,title,node,url}
+let seasonNodes = [];
+let seenMap = {}; // mirror of db
+
+function setStatus(t){ statusBadge.textContent = t; }
+
+/* Parse M3U playlist (EXTINF) */
+function parseM3U(text){
+  const lines = text.split(/\r?\n/);
+  const out = [];
+  for(let i=0;i<lines.length;i++){
+    const line = lines[i].trim();
+    if(!line) continue;
+    if(line.startsWith('#EXTINF')){
+      const comma = line.indexOf(',');
+      const title = comma>=0 ? line.slice(comma+1).trim() : line;
+      // find next non-comment, non-empty line
+      let url = '';
+      for(let j=i+1;j<lines.length;j++){
+        const l = lines[j].trim();
+        if(!l) continue;
+        if(l.startsWith('#')) continue;
+        url = l; break;
+      }
+      out.push({title, url, raw: line});
+    }
+  }
+  return out;
+}
+
+/* key from title SxxExx or fallback */
+function makeKey(title, idx){
+  const m = title.match(/S(\d{2})E(\d{2})/i);
+  if(m) return `S${m[1]}E${m[2]}`;
+  return 'EP' + String(idx+1).padStart(4,'0');
+}
+
+/* render season block */
+function renderSeason(name, eps){
+  const s = document.createElement('div'); s.className='season';
+  const head = document.createElement('div'); head.className='season-head';
+  const t = document.createElement('div'); t.innerHTML = `<div style="font-weight:700">${name}</div><div class="small">${eps.length} Folgen</div>`;
+  const controls = document.createElement('div');
+  const btnToggle = document.createElement('button'); btnToggle.className='btn ghost'; btnToggle.textContent='Auf/Zu';
+  const btnSeen = document.createElement('button'); btnSeen.className='btn'; btnSeen.textContent='Alle gesehen';
+  const btnUnseen = document.createElement('button'); btnUnseen.className='btn ghost'; btnUnseen.textContent='Alles ungesehen';
+  controls.appendChild(btnToggle); controls.appendChild(btnSeen); controls.appendChild(btnUnseen);
+  head.appendChild(t); head.appendChild(controls);
+  s.appendChild(head);
+
+  const list = document.createElement('div'); list.className='episode-list';
+  eps.forEach((ep, idx) => {
+    const key = makeKey(ep.title, idx);
+    const row = document.createElement('div'); row.className='episode';
+    const left = document.createElement('div'); left.className='ep-left'; left.textContent = idx+1;
+    const titleDiv = document.createElement('div'); titleDiv.className='ep-title';
+    titleDiv.innerHTML = `<strong>${escapeHtml(ep.title)}</strong><div class="small">Versteckter Stream</div>`;
+    const actions = document.createElement('div'); actions.style.minWidth='150px;display:flex;gap:8px;align-items:center;';
+
+    const cb = document.createElement('input'); cb.type='checkbox'; cb.id = 'cb-' + key; cb.checked = !!seenMap[key];
+    cb.addEventListener('change', e=>{
+      if(db){
+        if(e.target.checked) db.ref('seen/' + key).set(true);
+        else db.ref('seen/' + key).remove();
+      } else {
+        if(e.target.checked) seenMap[key]=true; else delete seenMap[key];
+        updateStats();
+      }
+    });
+
+    const playBtn = document.createElement('button'); playBtn.className='btn'; playBtn.textContent='Abspielen';
+    playBtn.addEventListener('click', (ev)=>{ ev.stopPropagation(); openPlayer(ep, key); });
+
+    actions.appendChild(cb); actions.appendChild(playBtn);
+    row.appendChild(left); row.appendChild(titleDiv); row.appendChild(actions);
+
+    // click row opens player (unless clicked on input/button)
+    row.addEventListener('click', ev=>{
+      const tag = ev.target.tagName.toLowerCase();
+      if(tag === 'input' || tag === 'button' || ev.target.closest('button')) return;
+      openPlayer(ep, key);
+    });
+
+    list.appendChild(row);
+    episodeIndex.push({key, title: ep.title, node: row, url: ep.url});
+  });
+
+  btnToggle.addEventListener('click', ()=>{ list.style.display = list.style.display === 'none' ? '' : 'none'; });
+  btnSeen.addEventListener('click', ()=>{ eps.forEach((ep,i)=>{ const k = makeKey(ep.title,i); if(db) db.ref('seen/'+k).set(true); else seenMap[k]=true; const cb = document.getElementById('cb-'+k); if(cb) cb.checked=true; }); });
+  btnUnseen.addEventListener('click', ()=>{ if(db) db.ref('seen').remove(); else { eps.forEach((ep,i)=> delete seenMap[makeKey(ep.title,i)]); updateStats(); } eps.forEach((ep,i)=>{ const cb = document.getElementById('cb-'+makeKey(ep.title,i)); if(cb) cb.checked=false; }); });
+
+  s.appendChild(list);
+  seasonsContainer.appendChild(s);
+  seasonNodes.push({root:s, list});
+}
+
+/* group by season and render */
+function groupAndRender(list){
+  const groups = {};
+  list.forEach((ep)=>{
+    const m = ep.title.match(/S(\d{2})E(\d{2})/i);
+    const season = m ? ('Staffel ' + parseInt(m[1],10)) : 'Sonstige';
+    if(!groups[season]) groups[season]=[];
+    groups[season].push(ep);
+  });
+  seasonsContainer.innerHTML = '';
+  Object.keys(groups).sort().forEach(g => renderSeason(g, groups[g]));
+  updateStats();
+}
+
+/* open player modal and attach stream via proxy (transcoding on server) */
+function openPlayer(ep, key){
+  playerTitle.textContent = ep.title;
+  const proxied = PROXY_BASE + '/stream?url=' + encodeURIComponent(ep.url);
+  // destroy previous hls
+  if(window._hlsInstance){ window._hlsInstance.destroy(); window._hlsInstance = null; }
+  // if the proxied URL points to .m3u8, use Hls.js; else set src directly (proxy returns mp4)
+  if(ep.url.endsWith('.m3u8')){
+    if(Hls.isSupported()){
+      const hls = new Hls();
+      window._hlsInstance = hls;
+      hls.loadSource(proxied);
+      hls.attachMedia(playerVideo);
+      hls.on(Hls.Events.MANIFEST_PARSED, ()=> playerVideo.play().catch(()=>{}));
+    } else {
+      playerVideo.src = proxied;
+      playerVideo.play().catch(()=>{});
+    }
+  } else {
+    // direct mp4 streaming via proxy (ffmpeg converts mkv->mp4 on the server)
+    playerVideo.src = proxied;
+    playerVideo.play().catch(()=>{});
+  }
+  playerModal.classList.add('open'); playerModal.setAttribute('aria-hidden','false');
+}
+
+/* close modal */
+closeModalBtn.addEventListener('click', ()=>{ closePlayer(); });
+playerModal.addEventListener('click', (e)=>{ if(e.target === playerModal) closePlayer(); });
+function closePlayer(){
+  playerModal.classList.remove('open');
+  playerModal.setAttribute('aria-hidden','true');
+  if(window._hlsInstance){ window._hlsInstance.destroy(); window._hlsInstance = null; }
+  try{ playerVideo.pause(); playerVideo.removeAttribute('src'); }catch(e){}
+}
+
+/* update stats */
+function updateStats(){
+  const total = episodeIndex.length;
+  const seen = Object.keys(seenMap).length;
+  seenCountEl.textContent = seen;
+  allCountEl.textContent = total;
+  const pct = total ? Math.round(seen/total*100) : 0;
+  progressFill.style.width = pct + '%';
+  progressPct.textContent = pct + '%';
+  setStatus(`${seen} / ${total}`);
+}
+
+/* search */
+searchInput.addEventListener('input', ()=> {
+  const q = searchInput.value.trim().toLowerCase();
+  episodeIndex.forEach(item=>{
+    const txt = (item.key + ' ' + item.title).toLowerCase();
+    item.node.style.display = q === '' || txt.includes(q) ? '' : 'none';
+  });
+  seasonNodes.forEach(s=>{ const any = Array.from(s.list.children).some(ch=> ch.style.display !== 'none'); s.root.style.display = any ? '' : 'none'; });
+});
+
+/* export/import */
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  const data = JSON.stringify(seenMap, null, 2);
+  const blob = new Blob([data], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'simpsons_seen_export.json'; a.click();
+  URL.revokeObjectURL(url);
+});
+document.getElementById('importBtn').addEventListener('click', ()=>{
+  const txt = prompt('Füge JSON ein (z. B. {"S01E01":true})');
+  try{
+    const obj = JSON.parse(txt || '{}');
+    if(db){
+      db.ref('seen').set(obj).then(()=> alert('Import in Firebase erfolgreich')).catch(e=> alert('Fehler beim Schreiben: ' + e.message));
+    } else {
+      seenMap = obj; updateStats(); alert('Import lokal übernommen');
+    }
+  }catch(e){ alert('Ungültiges JSON'); }
+});
+
+/* Firebase realtime listeners */
+if(db){
+  db.ref('seen').on('value', snap=>{
+    const data = snap.val() || {};
+    seenMap = {};
+    Object.keys(data).forEach(k=> seenMap[k]=true);
+    episodeIndex.forEach(item=>{
+      const cb = document.getElementById('cb-' + item.key);
+      if(cb) cb.checked = !!seenMap[item.key];
+    });
+    updateStats();
+  });
+  db.ref('seen').on('child_added', snap=>{
+    seenMap[snap.key] = true;
+    const cb = document.getElementById('cb-' + snap.key);
+    if(cb) cb.checked = true;
+    updateStats();
+  });
+  db.ref('seen').on('child_removed', snap=>{
+    delete seenMap[snap.key];
+    const cb = document.getElementById('cb-' + snap.key);
+    if(cb) cb.checked = false;
+    updateStats();
+  });
+} else {
+  setStatus('Kein Firebase: läuft nur lokal');
+}
+
+/* load playlist */
+async function loadPlaylist(){
+  setStatus('Lade Playlist...');
+  try{
+    const res = await fetch(PLAYLIST_URL);
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const txt = await res.text();
+    entries = parseM3U(txt);
+    if(entries.length === 0) setStatus('Keine Einträge gefunden.');
+    groupAndRender(entries);
+    // initial snapshot update if DB available
+    if(db){
+      db.ref('seen').once('value').then(snap=>{
+        const data = snap.val() || {};
+        seenMap = {};
+        Object.keys(data).forEach(k=> seenMap[k]=true);
+        episodeIndex.forEach(item=>{ const cb = document.getElementById('cb-' + item.key); if(cb) cb.checked = !!seenMap[item.key]; });
+        updateStats();
+      });
+    } else updateStats();
+    setStatus('Bereit — Playlist geladen.');
+  }catch(e){
+    console.error(e);
+    setStatus('Fehler beim Laden: ' + e.message);
+    seasonsContainer.innerHTML = '<div class="small">Fehler beim Laden der Playlist. Prüfe PLAYLIST_URL oder die Netzwerkverbindung.</div>';
+  }
+}
+
+/* small helper */
+function escapeHtml(s){ return s.replace(/[&<>"']/g, m=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]); }
+
+/* global buttons */
+document.getElementById('expandAll').addEventListener('click', ()=> seasonNodes.forEach(s=> s.list.style.display=''));
+document.getElementById('collapseAll').addEventListener('click', ()=> seasonNodes.forEach(s=> s.list.style.display='none'));
+document.getElementById('markAllSeen').addEventListener('click', ()=> { episodeIndex.forEach(i=> { if(db) db.ref('seen/' + i.key).set(true); else seenMap[i.key]=true; const cb = document.getElementById('cb-' + i.key); if(cb) cb.checked=true; }); updateStats(); });
+document.getElementById('markAllUnseen').addEventListener('click', ()=> { if(db) db.ref('seen').remove(); else { episodeIndex.forEach(i=> delete seenMap[i.key]); updateStats(); } episodeIndex.forEach(i=> { const cb = document.getElementById('cb-' + i.key); if(cb) cb.checked=false; }); });
+
+/* start */
+loadPlaylist();
+
+</script>
+</body>
+</html>
